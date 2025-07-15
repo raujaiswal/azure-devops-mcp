@@ -4,11 +4,11 @@
 import { AccessToken } from "@azure/identity";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebApi } from "azure-devops-node-api";
-import { BuildQueryOrder, DefinitionQueryOrder } from "azure-devops-node-api/interfaces/BuildInterfaces.js";
+import { BuildQueryOrder, DefinitionQueryOrder, TaskResult, TimelineRecordState } from "azure-devops-node-api/interfaces/BuildInterfaces.js";
 import { z } from "zod";
 import * as fs from "fs";
 import AdmZip from "adm-zip";
-import { streamToBuffer, createLogPaths, ensureDownloadsDirectory, extractNestedZips, createAnalysisPrompt, openInVSCode, cleanupZipFile } from "../utils.js";
+import { streamToBuffer, createLogPaths, ensureDownloadsDirectory, extractNestedZips, cleanupZipFile } from "../utils.js";
 
 const BUILD_TOOLS = {
   get_definitions: "build_get_definitions",
@@ -198,7 +198,7 @@ function configureBuildTools(
   
   server.tool(
     BUILD_TOOLS.get_log,
-    "Retrieves the logs for a specific build.",
+    "Retrieves the logs for a specific build along with step names and their status (passed, failed, skipped, etc.).",
     {
       project: z.string().describe("Project ID or name to get the build log for"),
       buildId: z.number().describe("ID of the build to get the log for"),
@@ -206,10 +206,74 @@ function configureBuildTools(
     async ({ project, buildId }) => {
       const connection = await connectionProvider();
       const buildApi = await connection.getBuildApi();
-      const logs = await buildApi.getBuildLogs(project, buildId);
+   //   const logs = await buildApi.getBuildLogs(project, buildId);
+
+      // Get both logs and timeline information
+      const [logs, timeline] = await Promise.all([
+        buildApi.getBuildLogs(project, buildId),
+        buildApi.getBuildTimeline(project, buildId)
+      ]);
+
+      // Create a map of log IDs to their corresponding timeline records (steps)
+      const logToStepMap = new Map();
+      const steps = [];
+      
+      if (timeline && timeline.records) {
+        for (const record of timeline.records) {
+          if (record.log && record.log.id) {
+            logToStepMap.set(record.log.id, record);
+          }
+          
+          // Include all task/step records
+          if (record.type === 'Task' || record.type === 'Job' || record.type === 'Stage') {
+            steps.push({
+              id: record.id,
+              name: record.name,
+              type: record.type,
+              state: record.state, // InProgress, Completed, etc.
+              result: record.result, // Succeeded, Failed, Skipped, etc.
+              startTime: record.startTime,
+              finishTime: record.finishTime,
+              logId: record.log?.id,
+              parentId: record.parentId,
+              order: record.order
+            });
+          }
+        }
+      }
+
+      // Enhance logs with step information
+      const enhancedLogs = logs?.map(log => {
+        const step = logToStepMap.get(log.id);
+        return {
+          ...log,
+          stepInfo: step ? {
+            stepName: step.name,
+            stepType: step.type,
+            state: step.state,
+            result: step.result,
+            startTime: step.startTime,
+            finishTime: step.finishTime
+          } : null
+        };
+      });
+
+      const response = {
+        logs: enhancedLogs || [],
+        steps: steps,
+        buildId: buildId,
+        summary: {
+          totalLogs: logs?.length || 0,
+          totalSteps: steps.length,
+          passedSteps: steps.filter(s => s.result === TaskResult.Succeeded).length,
+          failedSteps: steps.filter(s => s.result === TaskResult.Failed).length,
+          skippedSteps: steps.filter(s => s.result === TaskResult.Skipped).length,
+          inProgressSteps: steps.filter(s => s.state === TimelineRecordState.InProgress).length
+        }
+      };
 
       return {
-        content: [{ type: "text", text: JSON.stringify(logs, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
       };
     }
   );
@@ -334,7 +398,7 @@ function configureBuildTools(
 
   server.tool(
   BUILD_TOOLS.get_logs_zip,
-  "Downloads build logs as ZIP, extracts with nested archive support, creates analysis guide, and opens in VS Code for comprehensive build failure investigation.",
+  "Downloads build logs as ZIP, extracts them to workspace '.custompipelinelogs' directory for analysis.",
   {
     project: z.string().describe("Project ID or name to get the build logs for"),
     buildId: z.number().describe("ID of the build to get the logs ZIP for"),
@@ -363,12 +427,6 @@ function configureBuildTools(
     // Recursively extract any nested ZIP files
     extractNestedZips(extractDir);
 
-    // Create analysis prompt file
-    createAnalysisPrompt(extractDir, project, buildId);
-
-    // Open the extracted folder in VS Code
-    openInVSCode(extractDir);
-
     // Clean up original ZIP file
     cleanupZipFile(zipFilePath);
 
@@ -382,14 +440,48 @@ function configureBuildTools(
             zipSizeBytes: buffer.length,
             extractedPath: extractDir,
             folderName,
-            message: `Build logs extracted and opened in VS Code at: ${extractDir}`
+            message: `Build logs downloaded and extracted to ${extractDir}. Analysis can begin.`,
+            analysisGuide: {
+              searchPatterns: [
+                "🔍 KEY ERROR PATTERNS TO SEARCH FOR:",
+                "  • '##[error]' - Pipeline task failures",
+                "  • 'FAILED' or 'ERROR' - General failure indicators", 
+                "  • 'exit code [1-9]' - Non-zero exit codes",
+                "  • 'not found' - Missing files/artifacts",
+                "  • 'Exception' - Application exceptions",
+                "  • '401', '403' - Authentication failures"
+              ],
+              
+              analysisSteps: [
+                "📋 QUICK ANALYSIS WORKFLOW:",
+                "1. Find the final ##[error] or failure message",
+                "2. Identify what failed (task, file, command, etc.)",
+                "3. Check preceding logs for root cause",
+                "4. Categorize issue type and apply appropriate fix",
+                "",
+                "🎯 REPORT FORMAT:",
+                "📍 LOCATION: [Task/Step name]",
+                "🔬 SYMPTOMS: [Error message]", 
+                "🎯 ROOT CAUSE: [Why it failed]",
+                "💡 SOLUTION: [How to fix it]"
+              ]
+            },
+            
+            nextSteps: [
+              "🎯 ANALYSIS WORKFLOW:",
+              "1. Logs have been extracted and are ready for analysis",
+              "2. Search for key error patterns listed above",
+              "3. Identify primary failure and root cause", 
+              "4. Propose appropriate fix based on error type",
+              "",
+              "🧹 CLEANUP: Manually delete logs from '.custompipelinelogs' directory when ready"
+            ]
           }, null, 2)
         }
       ],
     };
   }
 );
-
 }
 
 export { BUILD_TOOLS, configureBuildTools };

@@ -4,8 +4,6 @@
 import { packageVersion } from "./version.js";
 import * as fs from "fs";
 import * as path from "path";
-import * as os from "os";
-import * as child_process from "child_process";
 import AdmZip from "adm-zip";
 
 export const apiVersion = "7.2-preview.1";
@@ -27,20 +25,24 @@ export function createLogPaths(buildId: number): { filename: string; folderName:
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const filename = `build-${buildId}-logs-${timestamp}.zip`;
   const folderName = `build-${buildId}-logs-${timestamp}`;
-  const downloadsDir = path.join(os.homedir(), 'Downloads');
-  const zipFilePath = path.join(downloadsDir, filename);
-  const extractDir = path.join(downloadsDir, folderName);
+  
+  // Use workspace-relative path instead of Downloads directory
+  const workspaceDir = process.cwd();
+  const logsDir = path.join(workspaceDir, '.custompipelinelogs');
+  const zipFilePath = path.join(logsDir, filename);
+  const extractDir = path.join(logsDir, folderName);
 
   return { filename, folderName, zipFilePath, extractDir };
 }
 
-// Helper function to ensure downloads directory exists
+// Helper function to ensure custom pipeline logs directory exists
 export function ensureDownloadsDirectory(): string {
-  const downloadsDir = path.join(os.homedir(), 'Downloads');
-  if (!fs.existsSync(downloadsDir)) {
-    fs.mkdirSync(downloadsDir, { recursive: true });
+  const workspaceDir = process.cwd();
+  const logsDir = path.join(workspaceDir, '.custompipelinelogs');
+  if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
   }
-  return downloadsDir;
+  return logsDir;
 }
 
 // Recursive function to extract nested ZIP files
@@ -77,48 +79,6 @@ export function extractNestedZips(dir: string): void {
       }
     }
   }
-}
-
-// Helper function to create analysis prompt file
-export function createAnalysisPrompt(extractDir: string, project: string, buildId: number): void {
-  const promptFile = path.join(extractDir, 'ANALYSIS_PROMPT.txt');
-  const promptContent = `BUILD LOG ANALYSIS GUIDE
-  ========================
-  Build Information:
-  - Project: ${project}
-  - Build ID: ${buildId}
-  - Extracted: ${new Date().toISOString()}
-  Analysis Tasks:
-  1. Look for ERROR, FAILED, or EXCEPTION keywords in log files
-  2. Check pipeline YAML files for configuration issues
-  3. Examine test results and failure reports
-  4. Review dependency installation logs
-  5. Identify the exact failure point and error messages
-  Common File Types to Check:
-  - *.log - Build execution logs
-  - *.yml/*.yaml - Pipeline configuration
-  - *.xml - Test results (MSTest, NUnit, etc.)
-  - *.trx - Visual Studio test results
-  - *.json - Package.json, build configs
-  - **/logs/** - Nested log directories
-  Search Strategy:
-  Use VS Code search (Ctrl+Shift+F) to find:
-  - "error" (case insensitive)
-  - "failed" (case insensitive)
-  - "exception" (case insensitive)
-  - "##[error]" (Azure DevOps error marker)
-  - Exit codes: "exit code 1", "returned 1"
-  `;
-  fs.writeFileSync(promptFile, promptContent);
-}
-
-// Helper function to open directory in VS Code
-export function openInVSCode(extractDir: string): void {
-  child_process.exec(`code "${extractDir}"`, (error) => {
-    if (error) {
-      console.warn('Could not open VS Code automatically. Please open the folder manually:', extractDir);
-    }
-  });
 }
 
 // Helper function to clean up ZIP file

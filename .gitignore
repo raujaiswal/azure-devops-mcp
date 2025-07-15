@@ -9,6 +9,10 @@ yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 
+# Custom pipeline logs directory
+.custompipelinelogs/*
+!.custompipelinelogs/README.md
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 

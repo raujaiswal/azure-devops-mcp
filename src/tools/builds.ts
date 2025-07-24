@@ -440,41 +440,11 @@ function configureBuildTools(
             zipSizeBytes: buffer.length,
             extractedPath: extractDir,
             folderName,
-            message: `Build logs downloaded and extracted to ${extractDir}. Analysis can begin.`,
-            analysisGuide: {
-              searchPatterns: [
-                "🔍 KEY ERROR PATTERNS TO SEARCH FOR:",
-                "  • '##[error]' - Pipeline task failures",
-                "  • 'FAILED' or 'ERROR' - General failure indicators", 
-                "  • 'exit code [1-9]' - Non-zero exit codes",
-                "  • 'not found' - Missing files/artifacts",
-                "  • 'Exception' - Application exceptions",
-                "  • '401', '403' - Authentication failures"
-              ],
-              
-              analysisSteps: [
-                "📋 QUICK ANALYSIS WORKFLOW:",
-                "1. Find the final ##[error] or failure message",
-                "2. Identify what failed (task, file, command, etc.)",
-                "3. Check preceding logs for root cause",
-                "4. Categorize issue type and apply appropriate fix",
-                "",
-                "🎯 REPORT FORMAT:",
-                "📍 LOCATION: [Task/Step name]",
-                "🔬 SYMPTOMS: [Error message]", 
-                "🎯 ROOT CAUSE: [Why it failed]",
-                "💡 SOLUTION: [How to fix it]"
-              ]
-            },
-            
+            message: `Build logs downloaded and extracted to ${extractDir}. Use the 'analyzeBuildFailure' prompt for guided analysis.`,
             nextSteps: [
-              "🎯 ANALYSIS WORKFLOW:",
-              "1. Logs have been extracted and are ready for analysis",
-              "2. Search for key error patterns listed above",
-              "3. Identify primary failure and root cause", 
-              "4. Propose appropriate fix based on error type",
-              "",
-              "🧹 CLEANUP: Manually delete logs from '.custompipelinelogs' directory when ready"
+              "Use the 'analyzeBuildFailure' prompt with these parameters for guided analysis",
+              "Or manually analyze logs using file search tools in the extracted directory",
+              "Cleanup: Delete logs from '.custompipelinelogs' directory when finished"
             ]
           }, null, 2)
         }
